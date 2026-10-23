@@ -1,0 +1,16 @@
+{
+  "IntervaloCicloSegundos": 30,
+  "PastaLogs": "Logs",
+  "DiasRetencaoLogs": 30,
+  "MaximoTentativas": 3,
+  "SegundosEntreTentativas": 10,
+  "Sistemas": [
+    {
+      "Nome": "SistemFake",
+      "CaminhoExecutavel": "C:\\Users\\breno.soares\\Dev\\SistemFake\\SistemFake\\bin\\Debug\\net8.0\\SistemFake.exe",
+      "NomeProcesso": "SistemFake",
+      "CaminhoLog": "C:\\Users\\breno.soares\\Dev\\SistemFake\\SistemFake\\bin\\Debug\\net8.0\\logs\\sistemafake.log",
+      "MinutosSemLogParaTravado": 1,
+      "SegundosCarenciaAposReinicio": 15
+    }  ]
+}
