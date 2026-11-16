@@ -1,15 +1,10 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿namespace WatcherApp.Models;
 
-namespace WatcherApp.Models
+public enum StatusLog
 {
-    public enum StatusLog
-    {
-        Ok,
-        Travado,
-        EmCarencia
-    }
+    Ok,
+    Travado,
+    EmCarencia,
+    AguardandoLog,
+    LogNaoEncontrado
 }

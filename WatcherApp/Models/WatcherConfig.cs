@@ -8,4 +8,7 @@ public class WatcherConfig
     public int MaximoTentativas { get; set; } = 3;
     public int SegundosEntreTentativas { get; set; } = 10;
     public List<SistemaMonitorado> Sistemas { get; set; } = new();
+    public EmailConfig Email { get; set; } = new();
+    public int SegundosToleranciaServicoPendente { get; set; } = 60;
+    public int MinutosEntreLembretesDeFalha { get; set; } = 30;
 }

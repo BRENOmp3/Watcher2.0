@@ -1,11 +1,14 @@
-﻿using WatcherApp.Models;
+﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using WatcherApp.Models;
 using WatcherApp.Services;
 
 namespace WatcherApp;
 
 internal class Program
 {
-    private static void Main(string[] args)
+    private static async Task Main(string[] args)
     {
         WatcherConfig config;
 
@@ -15,65 +18,100 @@ internal class Program
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Erro ao carregar a configuração: {ex.Message}");
+            RegistrarErroDeInicializacao(ex);
             return;
         }
 
-        var logger = new FileLogger(config);
-        var alertador = new AlertadorLog(logger);
+        var builder = Host.CreateApplicationBuilder(args);
+
+        // Usa o próprio logger (FileLogger); desligamos os do Host para não duplicar.
+        builder.Logging.ClearProviders();
+
+        // Faz o programa se comportar como serviço do Windows quando iniciado pelo Windows.
+        // Rodando pelo Visual Studio ou pelo terminal, continua sendo um console normal.
+        builder.Services.AddWindowsService(opcoes => opcoes.ServiceName = "WatcherApp");
+
+        // O padrão (30s) cortaria uma recuperação em andamento.
+        builder.Services.Configure<HostOptions>(opcoes =>
+            opcoes.ShutdownTimeout = TimeSpan.FromSeconds(120));
+
+        builder.Services.AddSingleton(config);
+        builder.Services.AddSingleton<IdentidadeDoServidor>();
+        builder.Services.AddSingleton<IWatcherLogger, FileLogger>();
+        builder.Services.AddSingleton<AlertadorLog>();
+
+        // Email só entra se estiver habilitado e, quando usa login, se a senha existir.
+        string? avisoDeInicializacao = null;
+        string? senha = null;
+        var emailAtivo = config.Email.Habilitado;
+
+        if (emailAtivo && config.Email.UsarCredenciais)
+        {
+            senha = Environment.GetEnvironmentVariable(config.Email.VariavelAmbienteSenha);
+
+            if (string.IsNullOrEmpty(senha))
+            {
+                emailAtivo = false;
+                avisoDeInicializacao =
+                    $"Email habilitado, mas a variável de ambiente '{config.Email.VariavelAmbienteSenha}' " +
+                    "não está definida. Os alertas ficarão só no log.";
+            }
+        }
+
+        if (emailAtivo)
+        {
+            builder.Services.AddSingleton(sp => new AlertadorEmail(
+                config.Email,
+                senha,
+                sp.GetRequiredService<IdentidadeDoServidor>(),
+                sp.GetRequiredService<IWatcherLogger>()));
+        }
+
+        // IAlertador: log sozinho, ou log + email quando o AlertadorEmail existe.
+        builder.Services.AddSingleton<IAlertador>(sp =>
+        {
+            var log = sp.GetRequiredService<AlertadorLog>();
+            var email = sp.GetService<AlertadorEmail>(); // null se não foi registrado
+
+            return email is null
+                ? log
+                : new AlertadorComposto(sp.GetRequiredService<IWatcherLogger>(), log, email);
+        });
+
+        builder.Services.AddSingleton<ServicoWindowsService>();
+        builder.Services.AddSingleton<LogMonitor>();
+        builder.Services.AddSingleton<RecuperadorDeSistema>();
+        builder.Services.AddSingleton<VerificadorDeSistema>();
+
+        builder.Services.AddHostedService<WatcherWorker>();
+
+        var host = builder.Build();
+
+        if (avisoDeInicializacao is not null)
+            host.Services.GetRequiredService<IWatcherLogger>().Aviso(avisoDeInicializacao);
+
+        await host.RunAsync();
+    }
+
+    // Como serviço não existe console, então guardamos o motivo num arquivo ao lado do .exe.
+    private static void RegistrarErroDeInicializacao(Exception ex)
+    {
+        var mensagem = $"Erro ao carregar a configuração: {ex.Message}";
+
+        Console.WriteLine(mensagem);
 
         try
         {
-            var processos = new ProcessoService();
-            var logMonitor = new LogMonitor();
-            var recuperador = new RecuperadorDeSistema(processos, alertador, logger, config);
-            var verificador = new VerificadorDeSistema(processos, logMonitor, recuperador);
-
-            using var cts = new CancellationTokenSource();
-
-            Console.CancelKeyPress += (sender, e) =>
-            {
-                e.Cancel = true;
-                cts.Cancel();
-                Console.WriteLine("Encerrando o watcher...");
-            };
-
-            Console.WriteLine("Watcher em execução (só anomalias são exibidas e registradas). Ctrl+C para sair.");
-
-            while (!cts.IsCancellationRequested)
-            {
-                ExecutarCiclo(config, verificador, alertador, cts.Token);
-                cts.Token.WaitHandle.WaitOne(TimeSpan.FromSeconds(config.IntervaloCicloSegundos));
-            }
+            var arquivo = Path.Combine(AppContext.BaseDirectory, "watcher-erro-inicializacao.txt");
+            File.WriteAllText(
+                arquivo,
+                $"{DateTime.Now:dd/MM/yyyy HH:mm:ss}{Environment.NewLine}{mensagem}{Environment.NewLine}");
         }
-        catch (Exception ex)
+        catch
         {
-            alertador.Alertar(NivelAlerta.Erro, "Erro fatal no watcher", $"{ex.GetType().Name}: {ex.Message}");
+            // Sem onde gravar: o console já mostrou.
         }
-    }
 
-    private static void ExecutarCiclo(
-        WatcherConfig config,
-        VerificadorDeSistema verificador,
-        IAlertador alertador,
-        CancellationToken token)
-    {
-        foreach (var sistema in config.Sistemas)
-        {
-            if (token.IsCancellationRequested)
-                break;
-
-            try
-            {
-                verificador.Verificar(sistema);
-            }
-            catch (Exception ex)
-            {
-                alertador.Alertar(
-                    NivelAlerta.Erro,
-                    $"Erro inesperado ao verificar {sistema.Nome}",
-                    $"{ex.GetType().Name}: {ex.Message}");
-            }
-        }
+        Environment.ExitCode = 1;
     }
 }

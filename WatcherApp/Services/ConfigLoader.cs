@@ -7,9 +7,10 @@ public static class ConfigLoader
 {
     private static readonly JsonSerializerOptions Opcoes = new()
     {
-        PropertyNameCaseInsensitive = true
+        PropertyNameCaseInsensitive = true,
+        ReadCommentHandling = JsonCommentHandling.Skip, // permite comentários // e /* */
+        AllowTrailingCommas = true                      // tolera uma vírgula sobrando no fim de uma lista
     };
-
     public static WatcherConfig Carregar(string nomeArquivo = "config.json")
     {
         var caminho = Path.Combine(AppContext.BaseDirectory, nomeArquivo);
@@ -19,11 +20,28 @@ public static class ConfigLoader
 
         var json = File.ReadAllText(caminho);
 
-        var config = JsonSerializer.Deserialize<WatcherConfig>(json, Opcoes)
-            ?? throw new InvalidOperationException("O arquivo de configuração está vazio ou inválido.");
+        WatcherConfig? config;
 
-        if (config.Sistemas.Count == 0)
-            throw new InvalidOperationException("Nenhum sistema configurado para monitoramento.");
+        try
+        {
+            config = JsonSerializer.Deserialize<WatcherConfig>(json, Opcoes);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException(
+                $"O arquivo '{nomeArquivo}' não é um JSON válido (vírgula faltando? aspas? chaves?): {ex.Message}");
+        }
+
+        if (config is null)
+            throw new InvalidOperationException($"O arquivo '{nomeArquivo}' está vazio.");
+
+        var erros = ConfigValidator.Validar(config);
+
+        if (erros.Count > 0)
+        {
+            var lista = string.Join(Environment.NewLine, erros.Select(e => $" - {e}"));
+            throw new InvalidOperationException($"Configuração inválida:{Environment.NewLine}{lista}");
+        }
 
         return config;
     }

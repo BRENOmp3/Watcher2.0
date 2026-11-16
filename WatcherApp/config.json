@@ -1,16 +1,30 @@
 {
-  "IntervaloCicloSegundos": 30,
-  "PastaLogs": "Logs",
-  "DiasRetencaoLogs": 30,
-  "MaximoTentativas": 3,
-  "SegundosEntreTentativas": 10,
+  "IntervaloCicloSegundos": 30, // Intervalo em segundos entre cada ciclo de monitoramento, ou seja, a cada quantos segundos o WatcherApp irá verificar os serviços monitorados
+  "PastaLogs": "Logs", // Pasta onde serão salvos os logs do WatcherApp, pode ser um caminho absoluto ou relativo, caso seja relativo, será relativo ao diretório onde o WatcherApp está sendo executado
+  "MaximoTentativas": 3, // Quantidade máxima de tentativas de reiniciar o serviço antes de enviar um alerta, caso o serviço não consiga ser reiniciado após esse número de tentativas, será enviado um alerta
+  "SegundosEntreTentativas": 15, // Quantidade de segundos entre cada tentativa de reiniciar o serviço, caso o serviço não consiga ser reiniciado, será aguardado esse tempo antes de tentar novamente
+  "SegundosToleranciaServicoPendente": 60, // Quantidade de segundos para considerar o serviço pendente, ou seja, caso o serviço esteja em estado "Pendente" por mais tempo do que esse valor, será considerado como travado e será enviado um alerta
+  "MinutosEntreLembretesDeFalha": 30, // Quantidade de minutos entre cada lembrete de falha, caso o serviço continue travado, será enviado um lembrete a cada esse intervalo de tempo
   "Sistemas": [
     {
-      "Nome": "SistemFake",
-      "CaminhoExecutavel": "C:\\Users\\breno.soares\\Dev\\SistemFake\\SistemFake\\bin\\Debug\\net8.0\\SistemFake.exe",
-      "NomeProcesso": "SistemFake",
-      "CaminhoLog": "C:\\Users\\breno.soares\\Dev\\SistemFake\\SistemFake\\bin\\Debug\\net8.0\\logs\\sistemafake.log",
-      "MinutosSemLogParaTravado": 1,
-      "SegundosCarenciaAposReinicio": 15
-    }  ]
+      "Nome": "FakeA", // Nome do sistema, usado para identificar o serviço, pode ser o mesmo nome do serviço Windows, mas também pode ser diferente, desde que seja único entre os sistemas monitorados
+      "NomeServico": "FakeA", // Nome do serviço Windows a ser monitorado, tem que ser exatamente o mesmo nome do serviço, caso contrário não será possível monitorar
+      "CaminhoLog": "E:\\Log\\Log - FakeA - *.txt", // Caminho para os arquivos de log do serviço, pode ser um caminho absoluto ou relativo, e pode conter curingas (*), caso o serviço gere vários arquivos de log
+      "MinutosSemLogParaTravado": 60, // Quantidade de minutos sem alteração nos arquivos de log para considerar o serviço travado
+      "SegundosCarenciaAposReinicio": 60 // Quantidade de segundos para considerar o serviço travado após reiniciar, para evitar falsos positivos
+    }
+  ],
+  "Email": {
+    "Habilitado": true, // Habilita ou desabilita o envio de e-mails, caso esteja desabilitado, não será enviado nenhum e-mail, mesmo que o serviço esteja travado
+    "ServidorSmtp": "email-teste.com.br", // Endereço do servidor SMTP para envio de e-mails, pode ser um endereço IP ou um nome de domínio
+    "PortaSmtp": 777, // Porta do servidor SMTP para envio de e-mails, geralmente é 25, 465 ou 587
+    "UsarSsl": true, // Habilita ou desabilita o uso de SSL para envio de e-mails, caso esteja habilitado, será usado SSL para enviar os e-mails, caso contrário, será usado TLS
+    "UsarCredenciais": true, // Habilita ou desabilita o uso de credenciais para envio de e-mails, caso esteja habilitado, será usado o usuário e senha para enviar os e-mails, caso contrário, será usado o usuário e senha do sistema operacional
+    "Usuario": "teste@outlook.com.br", // Usuário para envio de e-mails, caso esteja habilitado o uso de credenciais, esse usuário será usado para autenticação no servidor SMTP
+    "Remetente": "teste@outlook.com.br", // E-mail do remetente, caso esteja habilitado o uso de credenciais, esse e-mail será usado como remetente dos e-mails enviados
+    "Destinatarios": [
+      "teste1@outlook.com.br"
+    ], // Lista de e-mails dos destinatários, caso esteja habilitado o uso de credenciais, esses e-mails serão usados como destinatários dos e-mails enviados
+    "VariavelAmbienteSenha": "WATCHER_SMTP_SENHA" // Nome da variável de ambiente que contém a senha do usuário para envio de e-mails, caso esteja habilitado o uso de credenciais, essa variável será usada para obter a senha do usuário
+  }
 }

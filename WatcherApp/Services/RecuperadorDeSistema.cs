@@ -4,84 +4,128 @@ namespace WatcherApp.Services;
 
 public class RecuperadorDeSistema
 {
-    private const int SegundosVerificacaoAposStart = 5;
+    private const int SegundosVerificacaoAposAcao = 5;
 
-    private readonly ProcessoService _processos;
+    private readonly ServicoWindowsService _servicos;
     private readonly IAlertador _alertador;
     private readonly IWatcherLogger _logger;
     private readonly int _maximoTentativas;
     private readonly TimeSpan _intervaloEntreTentativas;
 
     public RecuperadorDeSistema(
-        ProcessoService processos,
+        ServicoWindowsService servicos,
         IAlertador alertador,
         IWatcherLogger logger,
         WatcherConfig config)
     {
-        _processos = processos;
+        _servicos = servicos;
         _alertador = alertador;
         _logger = logger;
         _maximoTentativas = config.MaximoTentativas;
-        _intervaloEntreTentativas = TimeSpan.FromSeconds(config.SegundosEntreTentativas);
+
+        _intervaloEntreTentativas =
+            TimeSpan.FromSeconds(config.SegundosEntreTentativas);
     }
 
-    public bool Recuperar(
+    public async Task<bool> RecuperarAsync(
         SistemaMonitorado sistema,
-        bool reiniciar,
+        TipoRecuperacao tipo,
         string motivo,
-        bool registrarFalhas = true)
+        bool jaEstavaEmFalha,
+        CancellationToken token)
     {
-        var acao = reiniciar ? "reiniciar" : "iniciar";
-        var acaoPassado = reiniciar ? "reiniciado" : "iniciado";
         Exception? ultimoErro = null;
 
         for (var tentativa = 1; tentativa <= _maximoTentativas; tentativa++)
         {
+            // Ponto de checagem: não começamos uma tentativa nova durante o encerramento.
+            token.ThrowIfCancellationRequested();
+
             try
             {
-                if (reiniciar)
-                    _processos.Encerrar(sistema.NomeProcesso);
+                // Esta ação NÃO é cancelável de propósito: um Stop seguido de Start
+                // precisa terminar, senão o serviço ficaria parado por nossa causa.
+                ExecutarAcao(sistema.NomeServico, tipo);
 
-                _processos.Iniciar(sistema.CaminhoExecutavel);
+                await Task.Delay(
+                    TimeSpan.FromSeconds(SegundosVerificacaoAposAcao),
+                    token);
 
-                Thread.Sleep(TimeSpan.FromSeconds(SegundosVerificacaoAposStart));
-
-                if (_processos.EstaRodando(sistema.NomeProcesso))
+                if (_servicos.EstaRodando(sistema.NomeServico))
                 {
+                    var complemento = jaEstavaEmFalha
+                        ? " O serviço estava em falha e voltou ao normal."
+                        : string.Empty;
+
                     _alertador.Alertar(
                         NivelAlerta.Aviso,
-                        $"Sistema {sistema.Nome} {acaoPassado}",
-                        $"{motivo}. Sistema {acaoPassado} com sucesso na tentativa {tentativa}/{_maximoTentativas}.");
+                        $"Serviço {sistema.Nome} recuperado",
+                        $"{motivo}. Ação: {tipo}. " +
+                        $"Sucesso na tentativa {tentativa}/{_maximoTentativas}.{complemento}");
 
                     return true;
                 }
 
                 ultimoErro = new InvalidOperationException(
-                    "O processo foi iniciado, mas não está rodando após a verificação.");
+                    "A ação foi executada, mas o serviço não ficou em execução.");
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                // O filtro deixa o cancelamento passar: ele não é uma falha de tentativa.
                 ultimoErro = ex;
             }
 
-            if (registrarFalhas)
+            // Se o serviço já estava em falha, as tentativas ficam em silêncio.
+            if (!jaEstavaEmFalha)
             {
                 _logger.Aviso(
-                    $"[{sistema.Nome}] Tentativa {tentativa}/{_maximoTentativas} de {acao} falhou: {ultimoErro?.Message}");
+                    $"[{sistema.Nome}] Tentativa {tentativa}/{_maximoTentativas} " +
+                    $"de {tipo} falhou: {ultimoErro?.Message}");
             }
 
             if (tentativa < _maximoTentativas)
-                Thread.Sleep(_intervaloEntreTentativas);
+                await Task.Delay(_intervaloEntreTentativas, token);
         }
 
-        if (registrarFalhas)
+        if (jaEstavaEmFalha)
+        {
+            _logger.Informacao(
+                $"[{sistema.Nome}] Nova rodada de recuperação falhou; " +
+                $"o serviço continua em falha. Último erro: {ultimoErro?.Message}");
+        }
+        else
         {
             _alertador.Alertar(
                 NivelAlerta.Erro,
-                $"Falha ao {acao} o sistema {sistema.Nome}",
-                $"{motivo}. Todas as {_maximoTentativas} tentativas falharam. Último erro: {ultimoErro?.Message}");
+                $"Falha ao recuperar o serviço {sistema.Nome}",
+                $"{motivo}. Todas as {_maximoTentativas} tentativas falharam. " +
+                $"Último erro: {ultimoErro?.Message}. " +
+                "O watcher continuará tentando em silêncio e avisará quando o serviço voltar ao normal.");
         }
 
         return false;
+    }
+
+    private void ExecutarAcao(
+        string nomeServico,
+        TipoRecuperacao tipo)
+    {
+        switch (tipo)
+        {
+            case TipoRecuperacao.Iniciar:
+                _servicos.Iniciar(nomeServico);
+                break;
+
+            case TipoRecuperacao.Continuar:
+                _servicos.Continuar(nomeServico);
+                break;
+
+            case TipoRecuperacao.Reiniciar:
+                _servicos.Reiniciar(nomeServico);
+                break;
+
+            default:
+                throw new ArgumentOutOfRangeException(nameof(tipo));
+        }
     }
 }
